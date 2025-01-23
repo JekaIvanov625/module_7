@@ -1,6 +1,14 @@
 from collections import UserDict
 from datetime import datetime, timedelta
 
+def input_error(handler):
+    def wrapper(*args, **kwargs):
+        try:
+            return handler(*args, **kwargs)
+        except (ValueError, KeyError, IndexError) as e:
+            return f"Error: {e}"
+    return wrapper
+
 class Field:
     def __init__(self, value):
         self.value = value
@@ -20,7 +28,8 @@ class Phone(Field):
 class Birthday(Field):
     def __init__(self, value):
         try:
-            self.value = datetime.strptime(value, "%d.%m.%Y")
+            datetime.strptime(value, "%d.%m.%Y")  # Validate format
+            self.value = value  # Store as string
         except ValueError:
             raise ValueError("Invalid date format. Use DD.MM.YYYY")
 
@@ -59,7 +68,7 @@ class Record:
 
     def __str__(self):
         phones = "; ".join(p.value for p in self.phones)
-        birthday = self.birthday.value.strftime("%d.%m.%Y") if self.birthday else "N/A"
+        birthday = self.birthday.value if self.birthday else "N/A"
         return f"Contact name: {self.name.value}, phones: {phones}, birthday: {birthday}"
 
 class AddressBook(UserDict):
@@ -79,17 +88,25 @@ class AddressBook(UserDict):
         today = datetime.today()
         next_week = today + timedelta(days=7)
         birthdays = []
+
         for record in self.data.values():
             if record.birthday:
-                bday_this_year = record.birthday.value.replace(year=today.year)
+                bday_date = datetime.strptime(record.birthday.value, "%d.%m.%Y")
+                bday_this_year = bday_date.replace(year=today.year)
+
+                if bday_this_year.weekday() in [5, 6]:  # If Saturday or Sunday
+                    bday_this_year += timedelta(days=(7 - bday_this_year.weekday()))
+
                 if today <= bday_this_year <= next_week:
                     birthdays.append({"name": record.name.value, "birthday": bday_this_year.strftime("%d.%m.%Y")})
+
         return birthdays
 
     def __str__(self):
         return "\n".join(str(record) for record in self.data.values())
 
 # Command Handlers
+@input_error
 def add_contact(args, book):
     name, phone, *_ = args
     record = book.find(name)
@@ -102,6 +119,7 @@ def add_contact(args, book):
         record.add_phone(phone)
     return message
 
+@input_error
 def change_contact(args, book):
     name, old_phone, new_phone = args
     record = book.find(name)
@@ -110,6 +128,7 @@ def change_contact(args, book):
         return "Contact updated."
     return "Contact not found."
 
+@input_error
 def show_phone(args, book):
     name, *_ = args
     record = book.find(name)
@@ -117,6 +136,7 @@ def show_phone(args, book):
         return str(record)
     return "Contact not found."
 
+@input_error
 def add_birthday(args, book):
     name, birthday = args
     record = book.find(name)
@@ -125,19 +145,22 @@ def add_birthday(args, book):
         return "Birthday added."
     return "Contact not found."
 
+@input_error
 def show_birthday(args, book):
     name, *_ = args
     record = book.find(name)
     if record and record.birthday:
-        return f"Birthday: {record.birthday.value.strftime('%d.%m.%Y')}"
+        return f"Birthday: {record.birthday.value}"
     return "Birthday not found."
 
+@input_error
 def upcoming_birthdays(_, book):
     birthdays = book.get_upcoming_birthdays()
     if birthdays:
         return "\n".join(f"{b['name']}: {b['birthday']}" for b in birthdays)
     return "No upcoming birthdays."
 
+@input_error
 def list_all(_, book):
     return str(book) if book.data else "No contacts found."
 
@@ -166,10 +189,7 @@ def main():
 
         handler = commands.get(command)
         if handler:
-            try:
-                print(handler(args, book))
-            except (ValueError, KeyError) as e:
-                print(e)
+            print(handler(args, book))
         else:
             print("Invalid command.")
 
